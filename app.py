@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import sys
 from pathlib import Path
 
@@ -35,14 +36,42 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle(
-            "XGBoost Regional Strain Predictor"
+            "XGBoost Regional Brain Strain Predictor"
         )
         self.resize(1500, 760)
 
         self.loaded_files: list[Path] = []
 
-        # One four-feature vector per valid impact.
-        self.impact_features: dict[Path, object] = {}
+        # Validated information for each impact.
+        self.impact_metadata: dict[
+            Path,
+            dict[str, object],
+        ] = {}
+
+        self.impact_features: dict[
+            Path,
+            object,
+        ] = {}
+
+        # Prediction results for exporting.
+        self.impact_predictions: dict[
+            Path,
+            dict[str, float],
+        ] = {}
+
+        self.impact_prediction_errors: dict[
+            Path,
+            dict[str, str],
+        ] = {}
+
+        self.impact_statuses: dict[
+            Path,
+            str,
+        ] = {}
+
+        self.prediction_attempted_paths: set[
+            Path
+        ] = set()
 
         self.predictor: RegionalPredictor | None = None
         self.predictor_error: str | None = None
@@ -53,11 +82,14 @@ class MainWindow(QMainWindow):
         except ModelConfigurationError as error:
             self.predictor_error = str(error)
 
-        # Maps model IDs to columns in the prediction table.
-        self.region_column_by_id: dict[str, int] = {}
+        # Maps model IDs to prediction-table columns.
+        self.region_column_by_id: dict[
+            str,
+            int,
+        ] = {}
 
         title_label = QLabel(
-            "XGBoost Regional Strain Predictor"
+            "XGBoost Regional Brain Strain Predictor"
         )
         title_label.setStyleSheet(
             "font-size: 26px; font-weight: bold;"
@@ -119,6 +151,14 @@ class MainWindow(QMainWindow):
             self.run_predictions
         )
 
+        self.export_button = QPushButton(
+            "Export predictions CSV"
+        )
+        self.export_button.setMinimumHeight(40)
+        self.export_button.clicked.connect(
+            self.export_predictions_csv
+        )
+
         self.clear_button = QPushButton(
             "Clear files"
         )
@@ -130,6 +170,7 @@ class MainWindow(QMainWindow):
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.load_button)
         button_layout.addWidget(self.run_button)
+        button_layout.addWidget(self.export_button)
         button_layout.addWidget(self.clear_button)
         button_layout.addStretch()
 
@@ -190,6 +231,7 @@ class MainWindow(QMainWindow):
         self.validation_table.setColumnCount(
             len(headers)
         )
+
         self.validation_table.setHorizontalHeaderLabels(
             headers
         )
@@ -232,14 +274,12 @@ class MainWindow(QMainWindow):
         )
 
     def configure_prediction_table(self) -> None:
-        """Configure the dynamic regional results table."""
+        """Configure the regional prediction table."""
 
         loaded_specs = []
 
         if self.predictor is not None:
-            loaded_specs = (
-                self.predictor.loaded_specs
-            )
+            loaded_specs = self.predictor.loaded_specs
 
         headers = ["Impact file"]
 
@@ -284,11 +324,9 @@ class MainWindow(QMainWindow):
             QHeaderView.ResizeMode.Stretch,
         )
 
-        # Emphasise the primary Whole Brain column.
+        # Emphasise the Whole Brain column.
         if self.predictor is not None:
-            primary_spec = (
-                self.predictor.primary_spec
-            )
+            primary_spec = self.predictor.primary_spec
 
             primary_column = (
                 self.region_column_by_id.get(
@@ -315,7 +353,7 @@ class MainWindow(QMainWindow):
         self,
         table: QTableWidget,
     ) -> None:
-        """Apply common behaviour to both tables."""
+        """Apply shared behaviour to both tables."""
 
         table.setAlternatingRowColors(True)
         table.setSortingEnabled(True)
@@ -330,7 +368,7 @@ class MainWindow(QMainWindow):
         )
 
     def update_model_status_label(self) -> None:
-        """Show which model files were successfully loaded."""
+        """Display which model files were loaded."""
 
         if self.predictor is None:
             self.model_status_label.setText(
@@ -345,6 +383,7 @@ class MainWindow(QMainWindow):
         loaded_count = (
             self.predictor.loaded_model_count
         )
+
         total_count = (
             self.predictor.total_model_count
         )
@@ -398,6 +437,7 @@ class MainWindow(QMainWindow):
         self.validation_table.setSortingEnabled(
             False
         )
+
         self.prediction_table.setSortingEnabled(
             False
         )
@@ -423,6 +463,7 @@ class MainWindow(QMainWindow):
         self.validation_table.setSortingEnabled(
             True
         )
+
         self.prediction_table.setSortingEnabled(
             True
         )
@@ -441,13 +482,12 @@ class MainWindow(QMainWindow):
         self,
         file_path: Path,
     ) -> None:
-        """
-        Add one impact to both validation and prediction tables.
-        """
+        """Add one impact to both application tables."""
 
         validation_row = (
             self.validation_table.rowCount()
         )
+
         self.validation_table.insertRow(
             validation_row
         )
@@ -455,6 +495,7 @@ class MainWindow(QMainWindow):
         prediction_row = (
             self.prediction_table.rowCount()
         )
+
         self.prediction_table.insertRow(
             prediction_row
         )
@@ -489,9 +530,19 @@ class MainWindow(QMainWindow):
                 "feature_values"
             ]
 
+            self.impact_metadata[
+                file_path
+            ] = result
+
             self.impact_features[
                 file_path
             ] = feature_values
+
+            status_text = "Ready for prediction"
+
+            self.impact_statuses[
+                file_path
+            ] = status_text
 
             validation_values = [
                 result["file_name"],
@@ -502,12 +553,12 @@ class MainWindow(QMainWindow):
                 f"{feature_values[1]:.6f}",
                 f"{feature_values[2]:.6f}",
                 f"{feature_values[3]:.6f}",
-                "Ready for prediction",
+                status_text,
             ]
 
             prediction_values[
                 self.prediction_status_column
-            ] = "Ready for prediction"
+            ] = status_text
 
         except (
             ValueError,
@@ -515,6 +566,10 @@ class MainWindow(QMainWindow):
             UnicodeDecodeError,
         ) as error:
             error_text = f"Invalid: {error}"
+
+            self.impact_statuses[
+                file_path
+            ] = error_text
 
             validation_values[-1] = error_text
 
@@ -543,22 +598,13 @@ class MainWindow(QMainWindow):
         values: list[object],
         file_path: Path,
     ) -> None:
-        """Write a complete read-only row into a table."""
+        """Write one complete read-only table row."""
 
         for column_number, value in enumerate(
             values
         ):
-            item = QTableWidgetItem(
-                str(value)
-            )
-
-            item.setFlags(
-                item.flags()
-                & ~Qt.ItemFlag.ItemIsEditable
-            )
-
-            item.setToolTip(
-                str(value)
+            item = self.create_read_only_item(
+                value
             )
 
             if column_number == 0:
@@ -572,6 +618,30 @@ class MainWindow(QMainWindow):
                 column_number,
                 item,
             )
+
+    @staticmethod
+    def create_read_only_item(
+        value: object,
+        tooltip: str | None = None,
+    ) -> QTableWidgetItem:
+        """Create a non-editable table item."""
+
+        item = QTableWidgetItem(
+            str(value)
+        )
+
+        item.setFlags(
+            item.flags()
+            & ~Qt.ItemFlag.ItemIsEditable
+        )
+
+        item.setToolTip(
+            tooltip
+            if tooltip is not None
+            else str(value)
+        )
+
+        return item
 
     def run_predictions(self) -> None:
         """Predict every available region for every valid impact."""
@@ -647,6 +717,18 @@ class MainWindow(QMainWindow):
                 )
             )
 
+            self.impact_predictions[
+                file_path
+            ] = predictions
+
+            self.impact_prediction_errors[
+                file_path
+            ] = errors
+
+            self.prediction_attempted_paths.add(
+                file_path
+            )
+
             for model_id, predicted_value in (
                 predictions.items()
             ):
@@ -659,17 +741,11 @@ class MainWindow(QMainWindow):
                 if column_number is None:
                     continue
 
-                prediction_item = QTableWidgetItem(
-                    f"{predicted_value:.6f}"
-                )
-
-                prediction_item.setFlags(
-                    prediction_item.flags()
-                    & ~Qt.ItemFlag.ItemIsEditable
-                )
-
-                prediction_item.setToolTip(
-                    f"{predicted_value:.10f}"
+                prediction_item = (
+                    self.create_read_only_item(
+                        f"{predicted_value:.6f}",
+                        f"{predicted_value:.10f}",
+                    )
                 )
 
                 self.prediction_table.setItem(
@@ -690,17 +766,11 @@ class MainWindow(QMainWindow):
                 if column_number is None:
                     continue
 
-                error_item = QTableWidgetItem(
-                    "Error"
-                )
-
-                error_item.setFlags(
-                    error_item.flags()
-                    & ~Qt.ItemFlag.ItemIsEditable
-                )
-
-                error_item.setToolTip(
-                    error_message
+                error_item = (
+                    self.create_read_only_item(
+                        "Error",
+                        error_message,
+                    )
                 )
 
                 self.prediction_table.setItem(
@@ -724,13 +794,14 @@ class MainWindow(QMainWindow):
                 status_text = "Prediction failed"
                 failed_impacts += 1
 
-            status_item = QTableWidgetItem(
-                status_text
-            )
+            self.impact_statuses[
+                file_path
+            ] = status_text
 
-            status_item.setFlags(
-                status_item.flags()
-                & ~Qt.ItemFlag.ItemIsEditable
+            status_item = (
+                self.create_read_only_item(
+                    status_text
+                )
             )
 
             self.prediction_table.setItem(
@@ -759,9 +830,159 @@ class MainWindow(QMainWindow):
             self.prediction_table.selectRow(0)
 
         self.update_primary_result_label()
+        self.update_button_state()
+
+    def export_predictions_csv(self) -> None:
+        """Export features and regional predictions to one CSV."""
+
+        if self.predictor is None:
+            QMessageBox.critical(
+                self,
+                "Models unavailable",
+                "The model configuration is unavailable.",
+            )
+            return
+
+        if not self.prediction_attempted_paths:
+            QMessageBox.information(
+                self,
+                "No predictions",
+                "Run regional predictions before exporting.",
+            )
+            return
+
+        selected_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export regional predictions",
+            "regional_strain_predictions.csv",
+            "CSV files (*.csv)",
+        )
+
+        if not selected_path:
+            return
+
+        output_path = Path(selected_path)
+
+        if output_path.suffix.lower() != ".csv":
+            output_path = output_path.with_suffix(
+                ".csv"
+            )
+
+        loaded_specs = self.predictor.loaded_specs
+
+        feature_headers = [
+            f"Feature: {feature_name}"
+            for feature_name in self.predictor.feature_order
+        ]
+
+        prediction_headers = [
+            f"Prediction: {spec.display_name}"
+            for spec in loaded_specs
+        ]
+
+        headers = [
+            "Impact file",
+            "Time points",
+            "Model version",
+            *feature_headers,
+            *prediction_headers,
+            "Status",
+        ]
+
+        try:
+            with output_path.open(
+                "w",
+                newline="",
+                encoding="utf-8-sig",
+            ) as output_file:
+                writer = csv.writer(output_file)
+
+                writer.writerow(headers)
+
+                for file_path in self.loaded_files:
+                    metadata = self.impact_metadata.get(
+                        file_path
+                    )
+
+                    if metadata is None:
+                        time_points = ""
+                        feature_cells = [
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]
+                    else:
+                        time_points = metadata.get(
+                            "time_points",
+                            "",
+                        )
+
+                        feature_values = metadata.get(
+                            "feature_values",
+                            [],
+                        )
+
+                        feature_cells = [
+                            f"{float(value):.10f}"
+                            for value in feature_values
+                        ]
+
+                        while len(feature_cells) < 4:
+                            feature_cells.append("")
+
+                        feature_cells = feature_cells[:4]
+
+                    predictions = (
+                        self.impact_predictions.get(
+                            file_path,
+                            {},
+                        )
+                    )
+
+                    prediction_cells = [
+                        (
+                            f"{predictions[spec.model_id]:.10f}"
+                            if spec.model_id in predictions
+                            else ""
+                        )
+                        for spec in loaded_specs
+                    ]
+
+                    status_text = (
+                        self.impact_statuses.get(
+                            file_path,
+                            "",
+                        )
+                    )
+
+                    row = [
+                        file_path.name,
+                        time_points,
+                        self.predictor.model_version,
+                        *feature_cells,
+                        *prediction_cells,
+                        status_text,
+                    ]
+
+                    writer.writerow(row)
+
+        except OSError as error:
+            QMessageBox.critical(
+                self,
+                "Export failed",
+                f"The CSV could not be saved:\n{error}",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"Predictions were saved to:\n{output_path}",
+        )
 
     def update_primary_result_label(self) -> None:
-        """Display Whole Brain as the selected impact's headline result."""
+        """Show Whole Brain as the selected impact's headline."""
 
         if self.predictor is None:
             self.primary_result_label.setText(
@@ -831,10 +1052,15 @@ class MainWindow(QMainWindow):
             )
 
     def clear_files(self) -> None:
-        """Remove all loaded impacts and predictions."""
+        """Remove loaded impacts and prediction results."""
 
         self.loaded_files.clear()
+        self.impact_metadata.clear()
         self.impact_features.clear()
+        self.impact_predictions.clear()
+        self.impact_prediction_errors.clear()
+        self.impact_statuses.clear()
+        self.prediction_attempted_paths.clear()
 
         self.validation_table.setRowCount(0)
         self.prediction_table.setRowCount(0)
@@ -851,7 +1077,7 @@ class MainWindow(QMainWindow):
         self.update_button_state()
 
     def update_button_state(self) -> None:
-        """Enable prediction only when models and data are available."""
+        """Enable buttons only when their actions are available."""
 
         prediction_available = (
             self.predictor is not None
@@ -859,8 +1085,19 @@ class MainWindow(QMainWindow):
             and bool(self.impact_features)
         )
 
+        export_available = (
+            self.predictor is not None
+            and bool(
+                self.prediction_attempted_paths
+            )
+        )
+
         self.run_button.setEnabled(
             prediction_available
+        )
+
+        self.export_button.setEnabled(
+            export_available
         )
 
     def update_status_label(self) -> None:
@@ -891,7 +1128,7 @@ def main() -> None:
     application = QApplication(sys.argv)
 
     application.setApplicationName(
-        "XGBoost Regional Strain Predictor"
+        "XGBoost Regional Brain Strain Predictor"
     )
 
     window = MainWindow()
@@ -902,3 +1139,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    
