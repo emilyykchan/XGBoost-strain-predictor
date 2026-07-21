@@ -34,7 +34,7 @@ The following columns are required:
 | `rotaccz` | Rotational acceleration, z-axis | rad/s² |
 
 Additional columns are allowed and ignored. The app does not currently convert units.
-A complete example is provided in [`sample_data/Sample_Impact_1.csv`](sample_data/Sample_Impact_1.csv).
+A complete example is provided in [`sample_data/sample_impact_1.csv`](sample_data/sample_impact_1.csv).
 
 ## What the app calculates
 
