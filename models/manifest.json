@@ -1,0 +1,131 @@
+{
+  "model_version": "1.0.0",
+  "prediction_target": "Regional brain strain",
+  "feature_order": [
+    "Rotational velocity resultant range",
+    "Square root of maximum rotational velocity resultant",
+    "Rotational acceleration resultant range",
+    "Square root of maximum rotational acceleration resultant"
+  ],
+  "models": [
+    {
+      "id": "whole_brain",
+      "file": "whole_brain.json",
+      "display_name": "Whole Brain",
+      "short_name": "WB",
+      "primary": true
+    },
+    {
+      "id": "brainstem",
+      "file": "brainstem.json",
+      "display_name": "Brainstem",
+      "short_name": "BrainStem",
+      "primary": false
+    },
+    {
+      "id": "anterior_thalamic_radiation",
+      "file": "anterior_thalamic_radiation.json",
+      "display_name": "Anterior Thalamic Radiation",
+      "short_name": "ATR",
+      "primary": false
+    },
+    {
+      "id": "corpus_callosum_body",
+      "file": "corpus_callosum_body.json",
+      "display_name": "Corpus Callosum – Body",
+      "short_name": "CCB",
+      "primary": false
+    },
+    {
+      "id": "corpus_callosum_genu",
+      "file": "corpus_callosum_genu.json",
+      "display_name": "Corpus Callosum – Genu",
+      "short_name": "CCG",
+      "primary": false
+    },
+    {
+      "id": "cingulum_hippocampal",
+      "file": "cingulum_hippocampal.json",
+      "display_name": "Cingulum – Hippocampal Portion",
+      "short_name": "CCH",
+      "primary": false
+    },
+    {
+      "id": "corpus_callosum_splenium",
+      "file": "corpus_callosum_splenium.json",
+      "display_name": "Corpus Callosum – Splenium",
+      "short_name": "CCS",
+      "primary": false
+    },
+    {
+      "id": "cingulum_cingulate_gyrus",
+      "file": "cingulum_cingulate_gyrus.json",
+      "display_name": "Cingulum – Cingulate Gyrus",
+      "short_name": "CGC",
+      "primary": false
+    },
+    {
+      "id": "corticospinal_tract",
+      "file": "corticospinal_tract.json",
+      "display_name": "Corticospinal Tract",
+      "short_name": "CST",
+      "primary": false
+    },
+    {
+      "id": "forceps_major",
+      "file": "forceps_major.json",
+      "display_name": "Forceps Major",
+      "short_name": "FMajor",
+      "primary": false
+    },
+    {
+      "id": "forceps_minor",
+      "file": "forceps_minor.json",
+      "display_name": "Forceps Minor",
+      "short_name": "FMinor",
+      "primary": false
+    },
+    {
+      "id": "inferior_fronto_occipital_fasciculus",
+      "file": "inferior_fronto_occipital_fasciculus.json",
+      "display_name": "Inferior Fronto-Occipital Fasciculus",
+      "short_name": "IFOF",
+      "primary": false
+    },
+    {
+      "id": "inferior_longitudinal_fasciculus",
+      "file": "inferior_longitudinal_fasciculus.json",
+      "display_name": "Inferior Longitudinal Fasciculus",
+      "short_name": "ILF",
+      "primary": false
+    },
+    {
+      "id": "mean_white_matter_skeleton",
+      "file": "mean_white_matter_skeleton.json",
+      "display_name": "Mean White-Matter Skeleton",
+      "short_name": "meanSkeleton",
+      "primary": false
+    },
+    {
+      "id": "superior_longitudinal_fasciculus",
+      "file": "superior_longitudinal_fasciculus.json",
+      "display_name": "Superior Longitudinal Fasciculus",
+      "short_name": "SLF",
+      "primary": false
+    },
+    {
+      "id": "superior_longitudinal_fasciculus_temporal",
+      "file": "superior_longitudinal_fasciculus_temporal.json",
+      "display_name": "Superior Longitudinal Fasciculus – Temporal",
+      "short_name": "SLFT",
+      "primary": false
+    },
+    {
+      "id": "uncinate_fasciculus",
+      "file": "uncinate_fasciculus.json",
+      "display_name": "Uncinate Fasciculus",
+      "short_name": "UF",
+      "primary": false
+    }
+  ]
+}

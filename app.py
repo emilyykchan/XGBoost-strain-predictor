@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -11,7 +12,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -19,30 +22,51 @@ from PySide6.QtWidgets import (
 )
 
 from kinematics import extract_impact_features
+from predictor import (
+    ModelConfigurationError,
+    RegionalPredictor,
+)
 
 
 class MainWindow(QMainWindow):
-    """Main window for the XGBoost strain prediction application."""
+    """Main window for the XGBoost strain predictor."""
 
     def __init__(self) -> None:
         super().__init__()
 
-        self.setWindowTitle("XGBoost Strain Predictor")
-        self.resize(1450, 700)
+        self.setWindowTitle(
+            "XGBoost Regional Strain Predictor"
+        )
+        self.resize(1500, 760)
 
-        # Stores the full paths of CSV files currently loaded.
         self.loaded_files: list[Path] = []
 
-        # Main title
-        title_label = QLabel("XGBoost Strain Predictor")
+        # One four-feature vector per valid impact.
+        self.impact_features: dict[Path, object] = {}
+
+        self.predictor: RegionalPredictor | None = None
+        self.predictor_error: str | None = None
+
+        try:
+            self.predictor = RegionalPredictor()
+
+        except ModelConfigurationError as error:
+            self.predictor_error = str(error)
+
+        # Maps model IDs to columns in the prediction table.
+        self.region_column_by_id: dict[str, int] = {}
+
+        title_label = QLabel(
+            "XGBoost Regional Strain Predictor"
+        )
         title_label.setStyleSheet(
             "font-size: 26px; font-weight: bold;"
         )
 
-        # Description of the required input structure
         description_label = QLabel(
             "Each CSV represents one head impact. "
-            "Each row represents one time point in the impact time history."
+            "Each row represents one time point in the "
+            "impact time history."
         )
         description_label.setWordWrap(True)
 
@@ -62,16 +86,42 @@ class MainWindow(QMainWindow):
         )
         units_label.setWordWrap(True)
 
-        self.status_label = QLabel("No impact files loaded.")
+        self.model_status_label = QLabel()
+        self.update_model_status_label()
 
-        # Buttons
-        self.load_button = QPushButton("Load impact CSV files")
+        self.primary_result_label = QLabel(
+            "Primary result: Whole Brain prediction "
+            "has not been run."
+        )
+        self.primary_result_label.setStyleSheet(
+            "font-size: 18px; font-weight: bold; "
+            "padding: 10px;"
+        )
+        self.primary_result_label.setWordWrap(True)
+
+        self.status_label = QLabel(
+            "No impact files loaded."
+        )
+
+        self.load_button = QPushButton(
+            "Load impact CSV files"
+        )
         self.load_button.setMinimumHeight(40)
         self.load_button.clicked.connect(
             self.load_csv_files
         )
 
-        self.clear_button = QPushButton("Clear files")
+        self.run_button = QPushButton(
+            "Run regional predictions"
+        )
+        self.run_button.setMinimumHeight(40)
+        self.run_button.clicked.connect(
+            self.run_predictions
+        )
+
+        self.clear_button = QPushButton(
+            "Clear files"
+        )
         self.clear_button.setMinimumHeight(40)
         self.clear_button.clicked.connect(
             self.clear_files
@@ -79,76 +129,261 @@ class MainWindow(QMainWindow):
 
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.load_button)
+        button_layout.addWidget(self.run_button)
         button_layout.addWidget(self.clear_button)
         button_layout.addStretch()
 
-        # Main results table
-        self.file_table = QTableWidget()
-        self.file_table.setColumnCount(9)
+        self.validation_table = QTableWidget()
+        self.configure_validation_table()
 
-        self.file_table.setHorizontalHeaderLabels(
-            [
-                "Impact file",
-                "Time points",
-                "Detected columns",
-                "Interpretation",
-                "Velocity range",
-                "√ maximum velocity",
-                "Acceleration range",
-                "√ maximum acceleration",
-                "Status",
-            ]
+        self.prediction_table = QTableWidget()
+        self.configure_prediction_table()
+
+        self.prediction_table.itemSelectionChanged.connect(
+            self.update_primary_result_label
         )
 
-        self.file_table.setAlternatingRowColors(True)
-        self.file_table.setSortingEnabled(True)
-        self.file_table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        tabs = QTabWidget()
+        tabs.addTab(
+            self.validation_table,
+            "Input validation",
         )
-        self.file_table.setSelectionMode(
-            QTableWidget.SelectionMode.SingleSelection
-        )
-        self.file_table.setWordWrap(False)
-
-        # Column resizing behaviour
-        header = self.file_table.horizontalHeader()
-        header.setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
-        )
-        header.setSectionResizeMode(
-            2,
-            QHeaderView.ResizeMode.Interactive,
-        )
-        header.setSectionResizeMode(
-            3,
-            QHeaderView.ResizeMode.Stretch,
-        )
-        header.setSectionResizeMode(
-            8,
-            QHeaderView.ResizeMode.Stretch,
+        tabs.addTab(
+            self.prediction_table,
+            "Regional predictions",
         )
 
-        self.file_table.setColumnWidth(2, 320)
-        self.file_table.setColumnWidth(3, 420)
-
-        # Main window layout
         main_layout = QVBoxLayout()
         main_layout.addWidget(title_label)
         main_layout.addWidget(description_label)
         main_layout.addWidget(required_columns_label)
         main_layout.addWidget(units_label)
-        main_layout.addSpacing(15)
+        main_layout.addWidget(self.model_status_label)
+        main_layout.addSpacing(10)
         main_layout.addLayout(button_layout)
         main_layout.addWidget(self.status_label)
-        main_layout.addWidget(self.file_table)
+        main_layout.addWidget(self.primary_result_label)
+        main_layout.addWidget(tabs)
 
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
 
         self.setCentralWidget(central_widget)
 
+        self.update_button_state()
+
+    def configure_validation_table(self) -> None:
+        """Configure the CSV interpretation table."""
+
+        headers = [
+            "Impact file",
+            "Time points",
+            "Detected columns",
+            "Interpretation",
+            "Velocity range",
+            "√ maximum velocity",
+            "Acceleration range",
+            "√ maximum acceleration",
+            "Status",
+        ]
+
+        self.validation_table.setColumnCount(
+            len(headers)
+        )
+        self.validation_table.setHorizontalHeaderLabels(
+            headers
+        )
+
+        self.configure_common_table_options(
+            self.validation_table
+        )
+
+        header = (
+            self.validation_table.horizontalHeader()
+        )
+
+        header.setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+
+        header.setSectionResizeMode(
+            2,
+            QHeaderView.ResizeMode.Interactive,
+        )
+
+        header.setSectionResizeMode(
+            3,
+            QHeaderView.ResizeMode.Stretch,
+        )
+
+        header.setSectionResizeMode(
+            8,
+            QHeaderView.ResizeMode.Stretch,
+        )
+
+        self.validation_table.setColumnWidth(
+            2,
+            300,
+        )
+
+        self.validation_table.setColumnWidth(
+            3,
+            420,
+        )
+
+    def configure_prediction_table(self) -> None:
+        """Configure the dynamic regional results table."""
+
+        loaded_specs = []
+
+        if self.predictor is not None:
+            loaded_specs = (
+                self.predictor.loaded_specs
+            )
+
+        headers = ["Impact file"]
+
+        for column_number, spec in enumerate(
+            loaded_specs,
+            start=1,
+        ):
+            headers.append(spec.display_name)
+
+            self.region_column_by_id[
+                spec.model_id
+            ] = column_number
+
+        headers.append("Status")
+
+        self.prediction_status_column = (
+            len(headers) - 1
+        )
+
+        self.prediction_table.setColumnCount(
+            len(headers)
+        )
+
+        self.prediction_table.setHorizontalHeaderLabels(
+            headers
+        )
+
+        self.configure_common_table_options(
+            self.prediction_table
+        )
+
+        header = (
+            self.prediction_table.horizontalHeader()
+        )
+
+        header.setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+
+        header.setSectionResizeMode(
+            self.prediction_status_column,
+            QHeaderView.ResizeMode.Stretch,
+        )
+
+        # Emphasise the primary Whole Brain column.
+        if self.predictor is not None:
+            primary_spec = (
+                self.predictor.primary_spec
+            )
+
+            primary_column = (
+                self.region_column_by_id.get(
+                    primary_spec.model_id
+                )
+            )
+
+            if primary_column is not None:
+                header_item = (
+                    self.prediction_table
+                    .horizontalHeaderItem(
+                        primary_column
+                    )
+                )
+
+                if header_item is not None:
+                    font = QFont(
+                        header_item.font()
+                    )
+                    font.setBold(True)
+                    header_item.setFont(font)
+
+    def configure_common_table_options(
+        self,
+        table: QTableWidget,
+    ) -> None:
+        """Apply common behaviour to both tables."""
+
+        table.setAlternatingRowColors(True)
+        table.setSortingEnabled(True)
+        table.setWordWrap(False)
+
+        table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+
+        table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
+        )
+
+    def update_model_status_label(self) -> None:
+        """Show which model files were successfully loaded."""
+
+        if self.predictor is None:
+            self.model_status_label.setText(
+                "Models unavailable: "
+                f"{self.predictor_error}"
+            )
+            self.model_status_label.setStyleSheet(
+                "font-weight: bold;"
+            )
+            return
+
+        loaded_count = (
+            self.predictor.loaded_model_count
+        )
+        total_count = (
+            self.predictor.total_model_count
+        )
+
+        if self.predictor.primary_model_loaded:
+            primary_text = "Whole Brain loaded"
+        else:
+            primary_text = "Whole Brain unavailable"
+
+        self.model_status_label.setText(
+            f"Models loaded: {loaded_count}/{total_count}. "
+            f"Primary model: {primary_text}."
+        )
+
+        self.model_status_label.setStyleSheet(
+            "font-weight: bold;"
+        )
+
+        if self.predictor.load_errors:
+            error_lines = []
+
+            for model_id, error_message in (
+                self.predictor.load_errors.items()
+            ):
+                spec = self.predictor.get_spec(
+                    model_id
+                )
+
+                error_lines.append(
+                    f"{spec.display_name}: "
+                    f"{error_message}"
+                )
+
+            self.model_status_label.setToolTip(
+                "\n".join(error_lines)
+            )
+
     def load_csv_files(self) -> None:
-        """Select and process multiple head-impact CSV files."""
+        """Select and validate multiple impact CSV files."""
 
         selected_files, _ = QFileDialog.getOpenFileNames(
             self,
@@ -160,22 +395,37 @@ class MainWindow(QMainWindow):
         if not selected_files:
             return
 
-        self.file_table.setSortingEnabled(False)
+        self.validation_table.setSortingEnabled(
+            False
+        )
+        self.prediction_table.setSortingEnabled(
+            False
+        )
 
         added_count = 0
 
         for selected_file in selected_files:
-            file_path = Path(selected_file).resolve()
+            file_path = Path(
+                selected_file
+            ).resolve()
 
-            # Do not add the same file twice.
             if file_path in self.loaded_files:
                 continue
 
             self.loaded_files.append(file_path)
-            self.add_impact_to_table(file_path)
+
+            self.add_impact_to_tables(
+                file_path
+            )
+
             added_count += 1
 
-        self.file_table.setSortingEnabled(True)
+        self.validation_table.setSortingEnabled(
+            True
+        )
+        self.prediction_table.setSortingEnabled(
+            True
+        )
 
         if added_count == 0:
             self.status_label.setText(
@@ -185,21 +435,31 @@ class MainWindow(QMainWindow):
         else:
             self.update_status_label()
 
-    def add_impact_to_table(
+        self.update_button_state()
+
+    def add_impact_to_tables(
         self,
         file_path: Path,
     ) -> None:
         """
-        Extract the four XGBoost input features from one impact.
-
-        One CSV produces one table row.
+        Add one impact to both validation and prediction tables.
         """
 
-        row_number = self.file_table.rowCount()
-        self.file_table.insertRow(row_number)
+        validation_row = (
+            self.validation_table.rowCount()
+        )
+        self.validation_table.insertRow(
+            validation_row
+        )
 
-        # Default values, used if validation fails.
-        values = [
+        prediction_row = (
+            self.prediction_table.rowCount()
+        )
+        self.prediction_table.insertRow(
+            prediction_row
+        )
+
+        validation_values = [
             file_path.name,
             "",
             "",
@@ -211,11 +471,29 @@ class MainWindow(QMainWindow):
             "",
         ]
 
-        try:
-            result = extract_impact_features(file_path)
-            feature_values = result["feature_values"]
+        prediction_values = [
+            ""
+            for _ in range(
+                self.prediction_table.columnCount()
+            )
+        ]
 
-            values = [
+        prediction_values[0] = file_path.name
+
+        try:
+            result = extract_impact_features(
+                file_path
+            )
+
+            feature_values = result[
+                "feature_values"
+            ]
+
+            self.impact_features[
+                file_path
+            ] = feature_values
+
+            validation_values = [
                 result["file_name"],
                 str(result["time_points"]),
                 result["detected_columns"],
@@ -227,64 +505,378 @@ class MainWindow(QMainWindow):
                 "Ready for prediction",
             ]
 
+            prediction_values[
+                self.prediction_status_column
+            ] = "Ready for prediction"
+
         except (
             ValueError,
             OSError,
             UnicodeDecodeError,
         ) as error:
-            values[-1] = f"Invalid: {error}"
+            error_text = f"Invalid: {error}"
 
-        for column_number, value in enumerate(values):
-            table_item = QTableWidgetItem(str(value))
+            validation_values[-1] = error_text
 
-            # Prevent users from editing calculated values.
-            table_item.setFlags(
-                table_item.flags()
+            prediction_values[
+                self.prediction_status_column
+            ] = error_text
+
+        self.populate_table_row(
+            self.validation_table,
+            validation_row,
+            validation_values,
+            file_path,
+        )
+
+        self.populate_table_row(
+            self.prediction_table,
+            prediction_row,
+            prediction_values,
+            file_path,
+        )
+
+    def populate_table_row(
+        self,
+        table: QTableWidget,
+        row_number: int,
+        values: list[object],
+        file_path: Path,
+    ) -> None:
+        """Write a complete read-only row into a table."""
+
+        for column_number, value in enumerate(
+            values
+        ):
+            item = QTableWidgetItem(
+                str(value)
+            )
+
+            item.setFlags(
+                item.flags()
                 & ~Qt.ItemFlag.ItemIsEditable
             )
 
-            # Show the full text when hovering over a cell.
-            table_item.setToolTip(str(value))
+            item.setToolTip(
+                str(value)
+            )
 
-            self.file_table.setItem(
+            if column_number == 0:
+                item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    str(file_path),
+                )
+
+            table.setItem(
                 row_number,
                 column_number,
-                table_item,
+                item,
+            )
+
+    def run_predictions(self) -> None:
+        """Predict every available region for every valid impact."""
+
+        if self.predictor is None:
+            QMessageBox.critical(
+                self,
+                "Models unavailable",
+                self.predictor_error
+                or "The models are unavailable.",
+            )
+            return
+
+        if not self.predictor.models:
+            QMessageBox.critical(
+                self,
+                "No models loaded",
+                "No regional model files could be loaded.",
+            )
+            return
+
+        if not self.impact_features:
+            QMessageBox.information(
+                self,
+                "No valid impacts",
+                "Load at least one valid impact CSV first.",
+            )
+            return
+
+        self.prediction_table.setSortingEnabled(
+            False
+        )
+
+        successful_impacts = 0
+        partial_impacts = 0
+        failed_impacts = 0
+
+        for row_number in range(
+            self.prediction_table.rowCount()
+        ):
+            file_item = self.prediction_table.item(
+                row_number,
+                0,
+            )
+
+            if file_item is None:
+                continue
+
+            stored_path = file_item.data(
+                Qt.ItemDataRole.UserRole
+            )
+
+            if not stored_path:
+                continue
+
+            file_path = Path(
+                str(stored_path)
+            )
+
+            feature_values = (
+                self.impact_features.get(
+                    file_path
+                )
+            )
+
+            # Invalid impacts have no feature vector.
+            if feature_values is None:
+                continue
+
+            predictions, errors = (
+                self.predictor.predict_all(
+                    feature_values
+                )
+            )
+
+            for model_id, predicted_value in (
+                predictions.items()
+            ):
+                column_number = (
+                    self.region_column_by_id.get(
+                        model_id
+                    )
+                )
+
+                if column_number is None:
+                    continue
+
+                prediction_item = QTableWidgetItem(
+                    f"{predicted_value:.6f}"
+                )
+
+                prediction_item.setFlags(
+                    prediction_item.flags()
+                    & ~Qt.ItemFlag.ItemIsEditable
+                )
+
+                prediction_item.setToolTip(
+                    f"{predicted_value:.10f}"
+                )
+
+                self.prediction_table.setItem(
+                    row_number,
+                    column_number,
+                    prediction_item,
+                )
+
+            for model_id, error_message in (
+                errors.items()
+            ):
+                column_number = (
+                    self.region_column_by_id.get(
+                        model_id
+                    )
+                )
+
+                if column_number is None:
+                    continue
+
+                error_item = QTableWidgetItem(
+                    "Error"
+                )
+
+                error_item.setFlags(
+                    error_item.flags()
+                    & ~Qt.ItemFlag.ItemIsEditable
+                )
+
+                error_item.setToolTip(
+                    error_message
+                )
+
+                self.prediction_table.setItem(
+                    row_number,
+                    column_number,
+                    error_item,
+                )
+
+            if predictions and not errors:
+                status_text = "Prediction complete"
+                successful_impacts += 1
+
+            elif predictions and errors:
+                status_text = (
+                    "Partial prediction: "
+                    f"{len(errors)} model(s) failed"
+                )
+                partial_impacts += 1
+
+            else:
+                status_text = "Prediction failed"
+                failed_impacts += 1
+
+            status_item = QTableWidgetItem(
+                status_text
+            )
+
+            status_item.setFlags(
+                status_item.flags()
+                & ~Qt.ItemFlag.ItemIsEditable
+            )
+
+            self.prediction_table.setItem(
+                row_number,
+                self.prediction_status_column,
+                status_item,
+            )
+
+        self.prediction_table.setSortingEnabled(
+            True
+        )
+
+        self.status_label.setText(
+            "Prediction finished: "
+            f"{successful_impacts} successful, "
+            f"{partial_impacts} partial, "
+            f"{failed_impacts} failed."
+        )
+
+        if (
+            self.prediction_table.rowCount() > 0
+            and not self.prediction_table
+            .selectionModel()
+            .hasSelection()
+        ):
+            self.prediction_table.selectRow(0)
+
+        self.update_primary_result_label()
+
+    def update_primary_result_label(self) -> None:
+        """Display Whole Brain as the selected impact's headline result."""
+
+        if self.predictor is None:
+            self.primary_result_label.setText(
+                "Primary result unavailable."
+            )
+            return
+
+        primary_spec = self.predictor.primary_spec
+
+        primary_column = (
+            self.region_column_by_id.get(
+                primary_spec.model_id
+            )
+        )
+
+        if primary_column is None:
+            self.primary_result_label.setText(
+                "Primary result unavailable: "
+                "Whole Brain model is not loaded."
+            )
+            return
+
+        row_number = (
+            self.prediction_table.currentRow()
+        )
+
+        if row_number < 0:
+            self.primary_result_label.setText(
+                "Primary result: select an impact "
+                "from the regional predictions table."
+            )
+            return
+
+        file_item = self.prediction_table.item(
+            row_number,
+            0,
+        )
+
+        prediction_item = (
+            self.prediction_table.item(
+                row_number,
+                primary_column,
+            )
+        )
+
+        file_name = (
+            file_item.text()
+            if file_item is not None
+            else "Selected impact"
+        )
+
+        prediction_text = (
+            prediction_item.text().strip()
+            if prediction_item is not None
+            else ""
+        )
+
+        if prediction_text:
+            self.primary_result_label.setText(
+                f"{file_name} — "
+                f"Whole Brain: {prediction_text}"
+            )
+        else:
+            self.primary_result_label.setText(
+                f"{file_name} — Whole Brain prediction "
+                "has not been run."
             )
 
     def clear_files(self) -> None:
-        """Remove all loaded impact files and table results."""
+        """Remove all loaded impacts and predictions."""
 
         self.loaded_files.clear()
-        self.file_table.setRowCount(0)
+        self.impact_features.clear()
+
+        self.validation_table.setRowCount(0)
+        self.prediction_table.setRowCount(0)
+
         self.status_label.setText(
             "No impact files loaded."
         )
 
+        self.primary_result_label.setText(
+            "Primary result: Whole Brain prediction "
+            "has not been run."
+        )
+
+        self.update_button_state()
+
+    def update_button_state(self) -> None:
+        """Enable prediction only when models and data are available."""
+
+        prediction_available = (
+            self.predictor is not None
+            and bool(self.predictor.models)
+            and bool(self.impact_features)
+        )
+
+        self.run_button.setEnabled(
+            prediction_available
+        )
+
     def update_status_label(self) -> None:
-        """Update the impact and validation summary."""
+        """Display the impact validation summary."""
 
-        total_impacts = len(self.loaded_files)
-        valid_impacts = 0
-        invalid_impacts = 0
+        total_impacts = len(
+            self.loaded_files
+        )
 
-        status_column = 8
+        valid_impacts = len(
+            self.impact_features
+        )
 
-        for row_number in range(
-            self.file_table.rowCount()
-        ):
-            status_item = self.file_table.item(
-                row_number,
-                status_column,
-            )
-
-            if status_item is None:
-                continue
-
-            if status_item.text() == "Ready for prediction":
-                valid_impacts += 1
-            else:
-                invalid_impacts += 1
+        invalid_impacts = (
+            total_impacts - valid_impacts
+        )
 
         self.status_label.setText(
             f"{total_impacts} impact file(s) loaded: "
@@ -299,7 +891,7 @@ def main() -> None:
     application = QApplication(sys.argv)
 
     application.setApplicationName(
-        "XGBoost Strain Predictor"
+        "XGBoost Regional Strain Predictor"
     )
 
     window = MainWindow()
@@ -310,4 +902,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    
