@@ -58,11 +58,18 @@
       "primary": false
     },
     {
-      "id": "cingulum_cingulate_gyrus",
-      "file": "cingulum_cingulate_gyrus.json",
-      "display_name": "Cingulum – Cingulate Gyrus",
-      "short_name": "CGC",
-      "primary": false
+    "id": "cingulum_cingulate",
+    "file": "cingulum_cingulate.json",
+    "display_name": "Cingulum – Cingulate",
+    "short_name": "CGC",
+    "primary": false
+    },
+    {
+    "id": "cingulum_cingulate_hippocampus",
+    "file": "cingulum_cingulate_hippocampus.json",
+    "display_name": "Cingulum – Cingulate Hippocampus",
+    "short_name": "CCH",
+    "primary": false
     },
     {
       "id": "corticospinal_tract",

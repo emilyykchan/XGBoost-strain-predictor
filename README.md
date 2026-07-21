@@ -18,6 +18,12 @@ After downloading:
 6. Select **Run regional predictions**.
 7. View Whole Brain as the primary result and the other available regions in the results table.
 
+### Interface
+
+Load impact CSV files in batch (one file per impact), review the input validation, run the strain prediction, and export the batch strain prediction results to CSV.
+
+![XGBoost Brain Strain Predictor interface](docs/images/interface.png)
+
 ## Input CSV format
 
 Each CSV represents **one head impact**. Each row represents one time point in that impact's kinematic time series.

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -55,6 +55,12 @@ QLabel#TitleLabel {
 QLabel#StatusLabel {
     color: #475569;
     font-weight: 600;
+    padding: 2px 4px;
+}
+
+QLabel#AttributionLabel {
+    color: #64748b;
+    font-size: 11px;
     padding: 2px 4px;
 }
 
@@ -203,6 +209,26 @@ QToolTip {
 """
 
 
+def resource_path(relative_path: str) -> Path:
+    """
+    Return a resource path that works during development and
+    inside a packaged PyInstaller application.
+    """
+
+    bundled_directory = getattr(
+        sys,
+        "_MEIPASS",
+        None,
+    )
+
+    if bundled_directory is not None:
+        base_directory = Path(bundled_directory)
+    else:
+        base_directory = Path(__file__).resolve().parent
+
+    return base_directory / relative_path
+
+
 class MainWindow(QMainWindow):
     """Main window for the brain strain prediction application."""
 
@@ -241,9 +267,7 @@ class MainWindow(QMainWindow):
             str,
         ] = {}
 
-        self.prediction_attempted_paths: set[
-            Path
-        ] = set()
+        self.prediction_attempted_paths: set[Path] = set()
 
         self.predictor: RegionalPredictor | None = None
         self.predictor_error: str | None = None
@@ -254,13 +278,10 @@ class MainWindow(QMainWindow):
         except ModelConfigurationError as error:
             self.predictor_error = str(error)
 
-        self.region_column_by_id: dict[
-            str,
-            int,
-        ] = {}
+        self.region_column_by_id: dict[str, int] = {}
 
         # --------------------------------------------------------------
-        # Header card
+        # Header
         # --------------------------------------------------------------
 
         title_label = QLabel(
@@ -360,6 +381,7 @@ class MainWindow(QMainWindow):
             10,
         )
         button_layout.setSpacing(9)
+
         button_layout.addWidget(
             self.load_button
         )
@@ -413,6 +435,22 @@ class MainWindow(QMainWindow):
         )
 
         # --------------------------------------------------------------
+        # Attribution
+        # --------------------------------------------------------------
+
+        attribution_label = QLabel(
+            "Part of TRACE. Developed by the HEAD Lab, "
+            "Imperial College London."
+        )
+        attribution_label.setObjectName(
+            "AttributionLabel"
+        )
+        attribution_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight
+            | Qt.AlignmentFlag.AlignVCenter
+        )
+
+        # --------------------------------------------------------------
         # Main layout
         # --------------------------------------------------------------
 
@@ -421,9 +459,10 @@ class MainWindow(QMainWindow):
             16,
             16,
             16,
-            16,
+            12,
         )
         main_layout.setSpacing(11)
+
         main_layout.addWidget(header_card)
         main_layout.addWidget(controls_card)
         main_layout.addWidget(
@@ -432,6 +471,9 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(
             self.tabs,
             stretch=1,
+        )
+        main_layout.addWidget(
+            attribution_label
         )
 
         central_widget = QWidget()
@@ -562,6 +604,7 @@ class MainWindow(QMainWindow):
             QHeaderView.ResizeMode.Stretch,
         )
 
+        # Emphasise the Whole Brain column.
         if self.predictor is not None:
             primary_spec = (
                 self.predictor.primary_spec
@@ -1046,6 +1089,7 @@ class MainWindow(QMainWindow):
         ):
             self.prediction_table.selectRow(0)
 
+        # Automatically open the results tab.
         self.tabs.setCurrentWidget(
             self.prediction_table
         )
@@ -1263,7 +1307,22 @@ def main() -> None:
         APP_STYLESHEET
     )
 
+    icon_path = resource_path(
+        "docs/assets/trace-mark.svg"
+    )
+
+    if icon_path.exists():
+        application.setWindowIcon(
+            QIcon(str(icon_path))
+        )
+
     window = MainWindow()
+
+    if icon_path.exists():
+        window.setWindowIcon(
+            QIcon(str(icon_path))
+        )
+
     window.show()
 
     sys.exit(
