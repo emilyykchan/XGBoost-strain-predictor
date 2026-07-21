@@ -4,23 +4,13 @@ A desktop app for rapid prediction of whole-brain and regional brain strain from
 
 > **Research use only.** Outputs are model predictions, not clinical diagnoses, concussion probabilities, or direct measurements of injury.
 
-## Download
+## Usage
 
 Download the latest macOS version from the [Releases page](../../releases/latest).
 
-After downloading:
+MacOS user: Move **XGBoost Brain Strain Predictor.app** to `Applications`. 
 
-1. Unzip the release.
-2. Move **XGBoost Regional Brain Strain Predictor.app** to `Applications`.
-3. Open the app.
-4. Load one or more impact CSV files.
-5. Check the **Input validation** tab.
-6. Select **Run regional predictions**.
-7. View Whole Brain as the primary result and the other available regions in the results table.
-
-### Interface
-
-Load impact CSV files in batch (one file per impact), review the input validation, run the strain prediction, and export the batch strain prediction results to CSV.
+Open the application, load impact CSV files in batch (one file per impact), review the input validation, run the strain prediction, and export the batch strain prediction results to CSV. 
 
 ![XGBoost Brain Strain Predictor interface](docs/images/interface.png)
 
@@ -40,7 +30,7 @@ The following columns are required:
 | `rotaccz` | Rotational acceleration, z-axis | rad/s² |
 
 Additional columns are allowed and ignored. The app does not currently convert units.
-A complete example is provided in [`sample_data/sample_impact_1.csv`](sample_data/sample_impact_1.csv).
+A complete example is provided in [`sample_data/`](./sample_data/sample_impact_1.csv).
 
 ## What the app calculates
 
