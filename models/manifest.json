@@ -44,13 +44,6 @@
       "primary": false
     },
     {
-      "id": "cingulum_hippocampal",
-      "file": "cingulum_hippocampal.json",
-      "display_name": "Cingulum – Hippocampal Portion",
-      "short_name": "CCH",
-      "primary": false
-    },
-    {
       "id": "corpus_callosum_splenium",
       "file": "corpus_callosum_splenium.json",
       "display_name": "Corpus Callosum – Splenium",
