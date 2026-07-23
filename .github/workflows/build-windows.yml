@@ -1,0 +1,180 @@
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows x64 application
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+
+          python -m pip install `
+            PySide6 `
+            pandas `
+            numpy `
+            xgboost==3.3.0 `
+            pyinstaller==6.21.0
+
+          python -c "import PySide6, pandas, numpy, xgboost; print('Dependencies imported successfully')"
+          python -c "import xgboost; print('XGBoost version:', xgboost.__version__)"
+
+      - name: Check required project files
+        shell: pwsh
+        run: |
+          $requiredFiles = @(
+            "app.py",
+            "predictor.py",
+            "kinematics.py",
+            "models\manifest.json",
+            "docs\assets\trace-mark.ico",
+            "docs\assets\trace-mark.svg"
+          )
+
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path $file)) {
+              throw "Required file is missing: $file"
+            }
+
+            Write-Host "Found: $file"
+          }
+
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          $pyinstallerArguments = @(
+            "--noconfirm"
+            "--clean"
+            "--windowed"
+            "--onedir"
+            "--name"
+            "XGBoost Brain Strain Predictor"
+            "--icon"
+            "docs/assets/trace-mark.ico"
+            "--collect-binaries"
+            "xgboost"
+            "--collect-data"
+            "xgboost"
+            "--exclude-module"
+            "xgboost.testing"
+            "--exclude-module"
+            "pytest"
+            "--add-data"
+            "models:models"
+            "--add-data"
+            "docs/assets/trace-mark.svg:docs/assets"
+            "app.py"
+          )
+
+          python -m PyInstaller @pyinstallerArguments
+
+      - name: Verify packaged application
+        shell: pwsh
+        run: |
+          $appDirectory = "dist\XGBoost Brain Strain Predictor"
+          $executable = Join-Path $appDirectory "XGBoost Brain Strain Predictor.exe"
+
+          if (-not (Test-Path $executable)) {
+            throw "Windows executable was not created."
+          }
+
+          $xgboostDll = Get-ChildItem `
+            -Path $appDirectory `
+            -Recurse `
+            -Filter "xgboost.dll" `
+            -ErrorAction SilentlyContinue
+
+          if (-not $xgboostDll) {
+            throw "xgboost.dll was not included in the application."
+          }
+
+          $versionFile = Get-ChildItem `
+            -Path $appDirectory `
+            -Recurse `
+            -Filter "VERSION" `
+            -ErrorAction SilentlyContinue
+
+          if (-not $versionFile) {
+            throw "The XGBoost VERSION file was not included."
+          }
+
+          $manifestFile = Get-ChildItem `
+            -Path $appDirectory `
+            -Recurse `
+            -Filter "manifest.json" `
+            -ErrorAction SilentlyContinue
+
+          if (-not $manifestFile) {
+            throw "The model manifest was not included."
+          }
+
+          Write-Host "Executable:"
+          Write-Host $executable
+
+          Write-Host "XGBoost DLL:"
+          $xgboostDll.FullName
+
+          Write-Host "XGBoost VERSION file:"
+          $versionFile.FullName
+
+          Write-Host "Model manifest:"
+          $manifestFile.FullName
+
+      - name: Create Windows release ZIP and checksum
+        shell: pwsh
+        run: |
+          $appDirectory = "dist\XGBoost Brain Strain Predictor"
+
+          $zipName = "XGBoost-Brain-Strain-Predictor-v0.1.0-beta-Windows-x64.zip"
+          $checksumName = "XGBoost-Brain-Strain-Predictor-v0.1.0-beta-Windows-x64.sha256"
+
+          if (Test-Path $zipName) {
+            Remove-Item $zipName -Force
+          }
+
+          Compress-Archive `
+            -Path $appDirectory `
+            -DestinationPath $zipName `
+            -CompressionLevel Optimal
+
+          $hash = (
+            Get-FileHash `
+              -Path $zipName `
+              -Algorithm SHA256
+          ).Hash.ToLower()
+
+          "$hash  $zipName" |
+            Set-Content `
+              -Path $checksumName `
+              -Encoding ascii
+
+          Write-Host "Created:"
+          Get-Item $zipName
+          Get-Content $checksumName
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: XGBoost-Brain-Strain-Predictor-Windows-x64
+          path: |
+            XGBoost-Brain-Strain-Predictor-v0.1.0-beta-Windows-x64.zip
+            XGBoost-Brain-Strain-Predictor-v0.1.0-beta-Windows-x64.sha256
+          if-no-files-found: error
+          retention-days: 14
